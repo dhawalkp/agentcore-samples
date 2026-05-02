@@ -10,7 +10,6 @@ Usage:
 
 import time
 import json
-import sys
 import argparse
 import logging
 import socket
@@ -121,8 +120,9 @@ class TokenCallbackServer:
             global _captured_token
 
             if error:
+                from html import escape
                 return HTMLResponse(
-                    f"<h2>Error: {error}</h2><p>{error_description}</p>",
+                    f"<h2>Error: {escape(error)}</h2><p>{escape(error_description or '')}</p>",
                     status_code=400
                 )
 
@@ -142,8 +142,10 @@ class TokenCallbackServer:
             tokens = r.json()
 
             if "error" in tokens:
+                from html import escape
                 return HTMLResponse(
-                    f"<h2>Token exchange error: {tokens['error']}</h2><p>{tokens.get('error_description', '')}</p>",
+                    f"<h2>Token exchange error: {escape(tokens['error'])}</h2>"
+                    f"<p>{escape(tokens.get('error_description', ''))}</p>",
                     status_code=400
                 )
 
@@ -179,9 +181,9 @@ def main():
 
     print(f"\n🚀 Token callback server on {host}:{PORT}")
     print(f"📋 Callback URL: {callback_url}")
-    print(f"\n📋 Open this URL in your browser to sign in:\n")
+    print("\n📋 Open this URL in your browser to sign in:\n")
     print(authorize_url)
-    print(f"\nWaiting for sign-in...\n")
+    print("\nWaiting for sign-in...\n")
 
     uvicorn.run(server.app, host=host, port=PORT, log_level="warning")
 
