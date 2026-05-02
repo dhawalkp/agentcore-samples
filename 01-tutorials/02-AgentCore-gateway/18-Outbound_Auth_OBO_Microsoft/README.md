@@ -36,10 +36,10 @@ sequenceDiagram
     Entra-->>GW: 6. Graph token (aud: graph.microsoft.com)
 
     GW->>Graph: 7. GET /me with Graph token
-    Graph-->>GW: 8. {displayName: "Dhawal Patel"}
+    Graph-->>GW: 8. {displayName: "John Doe"}
 
     GW-->>Agent: 9. MCP tool response
-    Agent-->>User: 10. "Your name is Dhawal Patel"
+    Agent-->>User: 10. "Your name is John Doe"
 ```
 
 ### Key Concepts
