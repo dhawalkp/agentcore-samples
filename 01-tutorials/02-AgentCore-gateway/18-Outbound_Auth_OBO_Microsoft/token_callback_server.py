@@ -45,10 +45,13 @@ def get_callback_base_url() -> str:
         return f"http://localhost:{PORT}"
     try:
         import boto3
+
         with open("/opt/ml/metadata/resource-metadata.json", "r") as f:
             data = json.load(f)
         client = boto3.client("sagemaker")
-        resp = client.describe_space(DomainId=data["DomainId"], SpaceName=data["SpaceName"])
+        resp = client.describe_space(
+            DomainId=data["DomainId"], SpaceName=data["SpaceName"]
+        )
         return resp["Url"] + f"/proxy/{PORT}"
     except Exception:
         return f"http://localhost:{PORT}"
@@ -116,48 +119,56 @@ class TokenCallbackServer:
             return {"access_token": _captured_token or ""}
 
         @self.app.get(CALLBACK_ENDPOINT)
-        async def callback(code: str = None, error: str = None, error_description: str = None):
+        async def callback(
+            code: str = None, error: str = None, error_description: str = None
+        ):
             global _captured_token
 
             if error:
                 from html import escape
+
                 return HTMLResponse(
                     f"<h2>Error: {escape(error)}</h2><p>{escape(error_description or '')}</p>",
-                    status_code=400
+                    status_code=400,
                 )
 
             if not code:
                 raise HTTPException(status_code=400, detail="Missing code parameter")
 
             redirect_uri = get_callback_url()
-            token_url = f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
-            r = requests.post(token_url, data={
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "scope": f"api://{self.client_id}/access_as_user openid profile email",
-            })
+            token_url = (
+                f"https://login.microsoftonline.com/{self.tenant_id}/oauth2/v2.0/token"
+            )
+            r = requests.post(
+                token_url,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret,
+                    "scope": f"api://{self.client_id}/access_as_user openid profile email",
+                },
+            )
             tokens = r.json()
 
             if "error" in tokens:
                 from html import escape
+
                 return HTMLResponse(
                     f"<h2>Token exchange error: {escape(tokens['error'])}</h2>"
                     f"<p>{escape(tokens.get('error_description', ''))}</p>",
-                    status_code=400
+                    status_code=400,
                 )
 
             _captured_token = tokens.get("access_token", "")
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("TOKEN RECEIVED")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print(f"\nFULL ACCESS TOKEN:\n{_captured_token}")
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             return HTMLResponse(
-                "<h2>✅ Token captured! Return to the notebook.</h2>",
-                status_code=200
+                "<h2>✅ Token captured! Return to the notebook.</h2>", status_code=200
             )
 
 
