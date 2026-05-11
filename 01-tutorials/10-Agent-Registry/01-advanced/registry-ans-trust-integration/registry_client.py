@@ -35,13 +35,16 @@ def _dp_client(region: str = "us-east-1"):
 # ANS Name Validation — uniqueness + version alignment
 # ---------------------------------------------------------------------------
 
+
 class AnsNameConflictError(Exception):
     """Raised when an ANS name already exists in the registry."""
+
     pass
 
 
 class AnsVersionMismatchError(Exception):
     """Raised when the ANS version doesn't match the record version."""
+
     pass
 
 
@@ -76,6 +79,7 @@ def _extract_ans_version_from_name(ans_name: str) -> str | None:
     ans://v1.0.0.host.example.com -> '1.0.0'
     """
     import re
+
     m = re.match(r"ans://v(\d+\.\d+\.\d+)\.", ans_name)
     return m.group(1) if m else None
 
@@ -112,7 +116,9 @@ def check_ans_name_unique(
         return
 
     cp = _cp_client(region)
-    records = cp.list_registry_records(registryId=registry_id).get("registryRecords", [])
+    records = cp.list_registry_records(registryId=registry_id).get(
+        "registryRecords", []
+    )
 
     for rec in records:
         record_id = rec.get("recordId", "")
@@ -167,6 +173,7 @@ def validate_ans_version_alignment(ans_name: str, record_version: str) -> None:
 
 class AnsHostMismatchError(Exception):
     """Raised when the agent card URL host doesn't match the ANS host."""
+
     pass
 
 
@@ -192,6 +199,7 @@ def validate_ans_host_alignment(content_json: str, ans_name: str) -> None:
     _, ans_host = _extract_ans_version_from_name(ans_name), None
     # Extract host from ANS name
     import re
+
     m = re.match(r"ans://v[\d.]+\.(.*)", ans_name)
     if not m:
         return
@@ -222,6 +230,7 @@ def validate_ans_host_alignment(content_json: str, ans_name: str) -> None:
 # ---------------------------------------------------------------------------
 # Registry CRUD
 # ---------------------------------------------------------------------------
+
 
 def create_registry(name: str, description: str, region: str = "us-east-1") -> str:
     """Create a new Agent Registry with IAM auth and auto-approval.
@@ -261,6 +270,7 @@ def _wait_for_registry_ready(cp, registry_id: str, timeout: int = 120):
 # Record CRUD
 # ---------------------------------------------------------------------------
 
+
 def create_record_generic(
     registry_id: str,
     name: str,
@@ -283,7 +293,9 @@ def create_record_generic(
     content = ""
     dt = descriptor_type.upper()
     if dt == "A2A":
-        content = descriptors.get("a2a", {}).get("agentCard", {}).get("inlineContent", "")
+        content = (
+            descriptors.get("a2a", {}).get("agentCard", {}).get("inlineContent", "")
+        )
     elif dt == "CUSTOM":
         content = descriptors.get("custom", {}).get("inlineContent", "")
 
@@ -306,9 +318,12 @@ def create_record_generic(
     )
     record_arn = resp["recordArn"]
     record_id = record_arn.split("/")[-1]
-    logger.info("Created %s record %s in registry %s", descriptor_type, record_id, registry_id)
+    logger.info(
+        "Created %s record %s in registry %s", descriptor_type, record_id, registry_id
+    )
     _wait_for_record_ready(cp, registry_id, record_id)
     return record_id
+
 
 def create_agent_record(
     registry_id: str,
@@ -413,11 +428,15 @@ def update_record_ans_metadata(
     old_ans_name = existing_params.get("ansName", "") if existing_params else ""
     new_ans_name = new_params.get("ansName", "")
     if new_ans_name and new_ans_name != old_ans_name:
-        check_ans_name_unique(registry_id, new_ans_name, exclude_record_id=record_id, region=region)
+        check_ans_name_unique(
+            registry_id, new_ans_name, exclude_record_id=record_id, region=region
+        )
 
     # Compare meaningful fields (skip syncedAt)
     if existing_params and not _params_changed(existing_params, new_params):
-        logger.info("No ANS metadata changes for record %s — skipping update", record_id)
+        logger.info(
+            "No ANS metadata changes for record %s — skipping update", record_id
+        )
         return False
 
     # Update the extension in the card
@@ -447,9 +466,13 @@ def _params_changed(old: dict, new: dict) -> bool:
     if old.get("status") != new.get("status"):
         return True
     # Compare cert fingerprints
-    if old.get("serverCert", {}).get("fingerprint") != new.get("serverCert", {}).get("fingerprint"):
+    if old.get("serverCert", {}).get("fingerprint") != new.get("serverCert", {}).get(
+        "fingerprint"
+    ):
         return True
-    if old.get("identityCert", {}).get("fingerprint") != new.get("identityCert", {}).get("fingerprint"):
+    if old.get("identityCert", {}).get("fingerprint") != new.get(
+        "identityCert", {}
+    ).get("fingerprint"):
         return True
     # Compare trust vector values
     old_tv = old.get("trustVector", {})
@@ -486,11 +509,41 @@ def _build_extension_params(ans_metadata: dict) -> dict:
         # Liveness and validity indicators
         "liveness": {
             "valid": liveness.get("valid", False),
-            "checkedAt": liveness.get("checkedAt", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
-            "dnsResolvable": next((c["passed"] for c in liveness_checks if c["check"] == "DNS _ans-badge TXT"), False),
-            "tlBadgeReachable": next((c["passed"] for c in liveness_checks if c["check"] == "Transparency Log badge"), False),
-            "tlsReachable": next((c["passed"] for c in liveness_checks if c["check"] == "TLS reachability"), False),
-            "formatValid": next((c["passed"] for c in liveness_checks if c["check"] == "ANS name format"), False),
+            "checkedAt": liveness.get(
+                "checkedAt", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ),
+            "dnsResolvable": next(
+                (
+                    c["passed"]
+                    for c in liveness_checks
+                    if c["check"] == "DNS _ans-badge TXT"
+                ),
+                False,
+            ),
+            "tlBadgeReachable": next(
+                (
+                    c["passed"]
+                    for c in liveness_checks
+                    if c["check"] == "Transparency Log badge"
+                ),
+                False,
+            ),
+            "tlsReachable": next(
+                (
+                    c["passed"]
+                    for c in liveness_checks
+                    if c["check"] == "TLS reachability"
+                ),
+                False,
+            ),
+            "formatValid": next(
+                (
+                    c["passed"]
+                    for c in liveness_checks
+                    if c["check"] == "ANS name format"
+                ),
+                False,
+            ),
         },
         "syncedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -510,9 +563,13 @@ def build_ans_metadata_for_mcp(ans_metadata: dict) -> dict:
         "x-ans-domain-validation": params.get("domainValidation", ""),
         "x-ans-badge-url": params.get("badgeUrl", ""),
         "x-ans-identity-cert-type": params.get("identityCert", {}).get("type", ""),
-        "x-ans-identity-cert-fingerprint": params.get("identityCert", {}).get("fingerprint", ""),
+        "x-ans-identity-cert-fingerprint": params.get("identityCert", {}).get(
+            "fingerprint", ""
+        ),
         "x-ans-server-cert-type": params.get("serverCert", {}).get("type", ""),
-        "x-ans-server-cert-fingerprint": params.get("serverCert", {}).get("fingerprint", ""),
+        "x-ans-server-cert-fingerprint": params.get("serverCert", {}).get(
+            "fingerprint", ""
+        ),
         "x-ans-trust-integrity": params.get("trustVector", {}).get("integrity", 0),
         "x-ans-trust-identity": params.get("trustVector", {}).get("identity", 0),
         "x-ans-trust-solvency": params.get("trustVector", {}).get("solvency", 0),
@@ -570,6 +627,7 @@ def build_acp_record_content(
 def _inject_ans_extension(card: dict, params: dict) -> dict:
     """Inject or replace the ANS extension in an agent card dict."""
     import copy
+
     updated = copy.deepcopy(card)
     caps = updated.setdefault("capabilities", {})
     extensions = caps.setdefault("extensions", [])
@@ -582,18 +640,21 @@ def _inject_ans_extension(card: dict, params: dict) -> dict:
             found = True
             break
     if not found:
-        extensions.append({
-            "uri": ANS_EXTENSION_URI,
-            "description": "ANS public identity, trust verification, and trust scores",
-            "required": False,
-            "params": params,
-        })
+        extensions.append(
+            {
+                "uri": ANS_EXTENSION_URI,
+                "description": "ANS public identity, trust verification, and trust scores",
+                "required": False,
+                "params": params,
+            }
+        )
     return updated
 
 
 # ---------------------------------------------------------------------------
 # Approval workflow
 # ---------------------------------------------------------------------------
+
 
 def submit_for_approval(registry_id: str, record_id: str, region: str = "us-east-1"):
     """Submit a DRAFT record for approval (DRAFT -> PENDING_APPROVAL)."""
@@ -602,7 +663,12 @@ def submit_for_approval(registry_id: str, record_id: str, region: str = "us-east
     logger.info("Submitted record %s for approval", record_id)
 
 
-def approve_record(registry_id: str, record_id: str, reason: str = "Approved", region: str = "us-east-1"):
+def approve_record(
+    registry_id: str,
+    record_id: str,
+    reason: str = "Approved",
+    region: str = "us-east-1",
+):
     """Approve a PENDING_APPROVAL record (PENDING_APPROVAL -> APPROVED)."""
     cp = _cp_client(region)
     cp.update_registry_record_status(
@@ -617,6 +683,7 @@ def approve_record(registry_id: str, record_id: str, reason: str = "Approved", r
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
+
 
 def search_records(registry_id: str, query: str, region: str = "us-east-1") -> list:
     """Semantic search for records in a registry via the data plane.
@@ -633,7 +700,9 @@ def search_records(registry_id: str, query: str, region: str = "us-east-1") -> l
     # The search API needs the registry ARN
     sts = boto3.client("sts", region_name=region)
     account_id = sts.get_caller_identity()["Account"]
-    registry_arn = f"arn:aws:bedrock-agentcore:{region}:{account_id}:registry/{registry_id}"
+    registry_arn = (
+        f"arn:aws:bedrock-agentcore:{region}:{account_id}:registry/{registry_id}"
+    )
 
     resp = dp.search_registry_records(
         registryIds=[registry_arn],
@@ -653,6 +722,7 @@ def list_records(registry_id: str, region: str = "us-east-1") -> list:
 # ---------------------------------------------------------------------------
 # Helper: Build agent card with ANS extension
 # ---------------------------------------------------------------------------
+
 
 def build_agent_card_with_ans(agent_card_dict: dict, ans_metadata: dict) -> str:
     """Build an A2A agent card JSON string with the ANS extension embedded.

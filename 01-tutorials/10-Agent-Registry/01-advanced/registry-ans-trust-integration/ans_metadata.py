@@ -19,8 +19,16 @@ ANS_EXTENSION_URI = "https://ans-protocol.org/ext/ans-identity/v1"
 TL_BASE_URL = "https://transparency.ans.godaddy.com"
 
 
+def _create_tls_context() -> ssl.SSLContext:
+    """Create a secure TLS context enforcing TLS 1.2 minimum."""
+    ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 class AnsLivenessError(Exception):
     """Raised when an ANS name fails liveness validation."""
+
     pass
 
 
@@ -76,9 +84,18 @@ def validate_ans_liveness(ans_name: str) -> dict:
     tl_status = None
 
     # Check 1: Format
-    format_ok = bool(version != "0.0.0" and host and "." in host and ans_name.startswith("ans://"))
-    checks.append({"check": "ANS name format", "passed": format_ok,
-                    "detail": f"version={version}, host={host}" if format_ok else "Invalid ANS name format"})
+    format_ok = bool(
+        version != "0.0.0" and host and "." in host and ans_name.startswith("ans://")
+    )
+    checks.append(
+        {
+            "check": "ANS name format",
+            "passed": format_ok,
+            "detail": f"version={version}, host={host}"
+            if format_ok
+            else "Invalid ANS name format",
+        }
+    )
     if not format_ok:
         overall_valid = False
         first_error = first_error or f"Invalid ANS name format: {ans_name}"
@@ -90,16 +107,34 @@ def validate_ans_liveness(ans_name: str) -> dict:
         badge_raw = [r.to_text().strip('"') for r in badge_txt]
         badge_fields = parse_txt_fields(badge_raw)
         badge_url = badge_fields.get("url", "")
-        checks.append({"check": "DNS _ans-badge TXT", "passed": True,
-                        "detail": f"Found: {badge_raw[0][:80]}..."})
+        checks.append(
+            {
+                "check": "DNS _ans-badge TXT",
+                "passed": True,
+                "detail": f"Found: {badge_raw[0][:80]}...",
+            }
+        )
     except dns.resolver.NXDOMAIN:
-        checks.append({"check": "DNS _ans-badge TXT", "passed": False,
-                        "detail": f"NXDOMAIN — no _ans-badge record for {host}"})
+        checks.append(
+            {
+                "check": "DNS _ans-badge TXT",
+                "passed": False,
+                "detail": f"NXDOMAIN — no _ans-badge record for {host}",
+            }
+        )
         overall_valid = False
-        first_error = first_error or f"No _ans-badge DNS record for {host} — agent not registered in ANS"
+        first_error = (
+            first_error
+            or f"No _ans-badge DNS record for {host} — agent not registered in ANS"
+        )
     except Exception as e:
-        checks.append({"check": "DNS _ans-badge TXT", "passed": False,
-                        "detail": f"DNS error: {e}"})
+        checks.append(
+            {
+                "check": "DNS _ans-badge TXT",
+                "passed": False,
+                "detail": f"DNS error: {e}",
+            }
+        )
         overall_valid = False
         first_error = first_error or f"DNS lookup failed for _ans-badge.{host}: {e}"
 
@@ -111,34 +146,64 @@ def validate_ans_liveness(ans_name: str) -> dict:
             tl_data = r.json()
             tl_status = tl_data.get("status", "UNKNOWN")
             is_valid_status = tl_status in ("ACTIVE", "WARNING", "DEPRECATED")
-            checks.append({"check": "Transparency Log badge", "passed": is_valid_status,
-                            "detail": f"Status: {tl_status}"})
+            checks.append(
+                {
+                    "check": "Transparency Log badge",
+                    "passed": is_valid_status,
+                    "detail": f"Status: {tl_status}",
+                }
+            )
             if not is_valid_status:
                 overall_valid = False
-                first_error = first_error or f"ANS agent status is {tl_status} — not valid for registration"
+                first_error = (
+                    first_error
+                    or f"ANS agent status is {tl_status} — not valid for registration"
+                )
         except Exception as e:
-            checks.append({"check": "Transparency Log badge", "passed": False,
-                            "detail": f"Fetch failed: {e}"})
+            checks.append(
+                {
+                    "check": "Transparency Log badge",
+                    "passed": False,
+                    "detail": f"Fetch failed: {e}",
+                }
+            )
             overall_valid = False
-            first_error = first_error or f"Cannot reach Transparency Log at {badge_url}: {e}"
+            first_error = (
+                first_error or f"Cannot reach Transparency Log at {badge_url}: {e}"
+            )
     else:
         if overall_valid:  # Only add this check if we expected a badge URL
-            checks.append({"check": "Transparency Log badge", "passed": False,
-                            "detail": "No badge URL found"})
+            checks.append(
+                {
+                    "check": "Transparency Log badge",
+                    "passed": False,
+                    "detail": "No badge URL found",
+                }
+            )
 
     # Check 4: TLS reachable
     try:
-        ctx = ssl.create_default_context()
+        ctx = _create_tls_context()
         with ctx.wrap_socket(
             socket.create_connection((host, 443), timeout=5),
             server_hostname=host,
         ) as s:
             s.getpeercert(binary_form=True)
-            checks.append({"check": "TLS reachability", "passed": True,
-                            "detail": f"Connected to {host}:443 with valid TLS"})
+            checks.append(
+                {
+                    "check": "TLS reachability",
+                    "passed": True,
+                    "detail": f"Connected to {host}:443 with valid TLS",
+                }
+            )
     except Exception as e:
-        checks.append({"check": "TLS reachability", "passed": False,
-                        "detail": f"Cannot connect to {host}:443: {e}"})
+        checks.append(
+            {
+                "check": "TLS reachability",
+                "passed": False,
+                "detail": f"Cannot connect to {host}:443: {e}",
+            }
+        )
         overall_valid = False
         first_error = first_error or f"Agent at {host}:443 is not reachable: {e}"
 
@@ -182,7 +247,13 @@ def fetch_ans_metadata(ans_name: str) -> dict:
         "badgeUrl": "",
         "identityCert": {"type": "", "fingerprint": ""},
         "serverCert": {"type": "", "fingerprint": ""},
-        "trustVector": {"integrity": 0, "identity": 0, "solvency": 0, "behavior": 0, "safety": 0},
+        "trustVector": {
+            "integrity": 0,
+            "identity": 0,
+            "solvency": 0,
+            "behavior": 0,
+            "safety": 0,
+        },
         "trustComposite": 0.0,
         "trustProfile": "UNTRUSTED",
         "syncedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -237,7 +308,7 @@ def fetch_ans_metadata(ans_name: str) -> dict:
 
     # --- TLS: Live server cert fingerprint for PKI validation ---
     try:
-        ctx = ssl.create_default_context()
+        ctx = _create_tls_context()
         with ctx.wrap_socket(
             socket.create_connection((host, 443), timeout=5),
             server_hostname=host,
@@ -303,7 +374,7 @@ def _gather_trust_signals(host: str, badge_url: str, metadata: dict) -> dict:
 
     # PKI validation
     try:
-        ctx = ssl.create_default_context()
+        ctx = _create_tls_context()
         with ctx.wrap_socket(
             socket.create_connection((host, 443), timeout=5),
             server_hostname=host,

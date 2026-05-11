@@ -80,7 +80,9 @@ def _extract_ans_extension(record: dict) -> tuple[dict | None, str]:
 
     # Try A2A path
     try:
-        a2a_raw = descriptors.get("a2a", {}).get("agentCard", {}).get("inlineContent", "")
+        a2a_raw = (
+            descriptors.get("a2a", {}).get("agentCard", {}).get("inlineContent", "")
+        )
         if a2a_raw:
             card = json.loads(a2a_raw)
             for ext in card.get("capabilities", {}).get("extensions", []):
@@ -103,7 +105,9 @@ def _extract_ans_extension(record: dict) -> tuple[dict | None, str]:
                     "domainValidation": server.get("x-ans-domain-validation", ""),
                     "identityCert": {
                         "type": server.get("x-ans-identity-cert-type", ""),
-                        "fingerprint": server.get("x-ans-identity-cert-fingerprint", ""),
+                        "fingerprint": server.get(
+                            "x-ans-identity-cert-fingerprint", ""
+                        ),
                     },
                     "serverCert": {
                         "type": server.get("x-ans-server-cert-type", ""),
@@ -189,12 +193,14 @@ def _build_updated_content(content: dict, fresh_ans: dict, record_format: str) -
         for ext in updated.get("capabilities", {}).get("extensions", []):
             if ext.get("uri") == ANS_EXTENSION_URI:
                 from registry_client import _build_extension_params
+
                 ext["params"] = _build_extension_params(fresh_ans)
                 break
         # Sync the agent card URL with the ANS host
         ans_host = fresh_ans.get("host", "")
         if ans_host and "url" in updated:
             from urllib.parse import urlparse, urlunparse
+
             parsed = urlparse(updated["url"])
             if parsed.hostname and parsed.hostname != ans_host:
                 updated["url"] = urlunparse(parsed._replace(netloc=ans_host))
@@ -232,6 +238,7 @@ def _build_updated_content(content: dict, fresh_ans: dict, record_format: str) -
     elif record_format == "custom":
         # Update the ans nested object
         from registry_client import _build_extension_params
+
         updated["ans"] = _build_extension_params(fresh_ans)
 
     return updated
@@ -242,11 +249,39 @@ def _build_update_descriptors(updated_content: dict, record_format: str) -> dict
     Uses optionalValue wrappers required by the boto3 API."""
     content_json = json.dumps(updated_content)
     if record_format == "a2a":
-        return {"optionalValue": {"a2a": {"optionalValue": {"agentCard": {"schemaVersion": "0.3", "inlineContent": content_json}}}}}
+        return {
+            "optionalValue": {
+                "a2a": {
+                    "optionalValue": {
+                        "agentCard": {
+                            "schemaVersion": "0.3",
+                            "inlineContent": content_json,
+                        }
+                    }
+                }
+            }
+        }
     elif record_format == "mcp":
-        return {"optionalValue": {"mcp": {"optionalValue": {"server": {"optionalValue": {"schemaVersion": "2025-12-11", "inlineContent": content_json}}}}}}
+        return {
+            "optionalValue": {
+                "mcp": {
+                    "optionalValue": {
+                        "server": {
+                            "optionalValue": {
+                                "schemaVersion": "2025-12-11",
+                                "inlineContent": content_json,
+                            }
+                        }
+                    }
+                }
+            }
+        }
     else:
-        return {"optionalValue": {"custom": {"optionalValue": {"inlineContent": content_json}}}}
+        return {
+            "optionalValue": {
+                "custom": {"optionalValue": {"inlineContent": content_json}}
+            }
+        }
 
 
 def poll_and_sync(registry_id: str, region: str = "us-east-1") -> list[dict]:
@@ -273,11 +308,21 @@ def poll_and_sync(registry_id: str, region: str = "us-east-1") -> list[dict]:
         record_name = rec_summary.get("name", "unknown")
 
         try:
-            full_record = registry_client.get_record(registry_id, record_id, region=region)
+            full_record = registry_client.get_record(
+                registry_id, record_id, region=region
+            )
         except Exception as e:
-            results.append({"record_id": record_id, "record_name": record_name,
-                            "ans_name": "", "record_format": "", "changed": False,
-                            "updated": False, "error": str(e)})
+            results.append(
+                {
+                    "record_id": record_id,
+                    "record_name": record_name,
+                    "ans_name": "",
+                    "record_format": "",
+                    "changed": False,
+                    "updated": False,
+                    "error": str(e),
+                }
+            )
             continue
 
         stored_ans, record_format = _extract_ans_extension(full_record)
@@ -306,8 +351,13 @@ def poll_and_sync(registry_id: str, region: str = "us-east-1") -> list[dict]:
             sync_result["liveness_checks"] = liveness["checks"]
 
             if not liveness["valid"]:
-                logger.warning("⚠️  ANS liveness FAILED for %s [%s] (%s): %s",
-                               record_name, record_format, ans_name, liveness["error"])
+                logger.warning(
+                    "⚠️  ANS liveness FAILED for %s [%s] (%s): %s",
+                    record_name,
+                    record_format,
+                    ans_name,
+                    liveness["error"],
+                )
                 sync_result["error"] = f"Liveness failed: {liveness['error']}"
 
             fresh_ans = fetch_ans_metadata(ans_name)
@@ -327,13 +377,19 @@ def poll_and_sync(registry_id: str, region: str = "us-east-1") -> list[dict]:
                         descriptors=descriptors,
                     )
                     sync_result["updated"] = True
-                    logger.info("✅ Updated [%s] %s (%s)", fmt.upper(), record_name, ans_name)
+                    logger.info(
+                        "✅ Updated [%s] %s (%s)", fmt.upper(), record_name, ans_name
+                    )
                 else:
                     sync_result["error"] = "Could not parse record content"
             else:
-                logger.info("No changes for [%s] %s (%s) — liveness: %s",
-                            record_format, record_name, ans_name,
-                            "VALID" if liveness["valid"] else "INVALID")
+                logger.info(
+                    "No changes for [%s] %s (%s) — liveness: %s",
+                    record_format,
+                    record_name,
+                    ans_name,
+                    "VALID" if liveness["valid"] else "INVALID",
+                )
         except Exception as e:
             sync_result["error"] = str(e)
             logger.error("Error syncing [%s] %s: %s", record_format, record_name, e)
@@ -357,7 +413,9 @@ def run_polling_loop(
     """
     logger.info(
         "Starting ANS sync polling loop: registry=%s, interval=%ds, region=%s",
-        registry_id, interval_seconds, region,
+        registry_id,
+        interval_seconds,
+        region,
     )
     while True:
         try:
@@ -369,7 +427,8 @@ def run_polling_loop(
             checked_count = len(results)
             logger.info(
                 "Poll complete: %d records checked, %d updated",
-                checked_count, updated_count,
+                checked_count,
+                updated_count,
             )
         except Exception as e:
             logger.error("Poll cycle error: %s", e)
@@ -379,10 +438,19 @@ def run_polling_loop(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="ANS metadata sync poller for AWS Agent Registry")
+    parser = argparse.ArgumentParser(
+        description="ANS metadata sync poller for AWS Agent Registry"
+    )
     parser.add_argument("--registry-id", required=True, help="AWS Agent Registry ID")
-    parser.add_argument("--interval", type=int, default=300, help="Poll interval in seconds (default: 300)")
-    parser.add_argument("--region", default="us-east-1", help="AWS region (default: us-east-1)")
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=300,
+        help="Poll interval in seconds (default: 300)",
+    )
+    parser.add_argument(
+        "--region", default="us-east-1", help="AWS region (default: us-east-1)"
+    )
     args = parser.parse_args()
 
     run_polling_loop(args.registry_id, args.interval, args.region)

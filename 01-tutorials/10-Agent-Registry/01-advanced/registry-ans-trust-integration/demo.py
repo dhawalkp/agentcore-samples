@@ -34,7 +34,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # The live GoDaddy ANS agent
-LIVE_ANS_NAME = "ans://v1.0.0.support-a08c16a8-f972-472f-b95f-3debacfcb201.helpagent.club"
+LIVE_ANS_NAME = (
+    "ans://v1.0.0.support-a08c16a8-f972-472f-b95f-3debacfcb201.helpagent.club"
+)
 
 # Base A2A agent card (without ANS extension — that gets added)
 BASE_AGENT_CARD = {
@@ -89,10 +91,14 @@ def run_demo(region: str = "us-east-1", registry_id: str | None = None):
             if e.response["Error"]["Code"] == "ConflictException":
                 print("  ⚠️  Registry already exists, finding it...")
                 import boto3
+
                 cp = boto3.client("bedrock-agentcore-control", region_name=region)
                 registries = cp.list_registries().get("registries", [])
                 for reg in registries:
-                    if reg.get("name") == "ans-integration-demo" and reg.get("status") == "READY":
+                    if (
+                        reg.get("name") == "ans-integration-demo"
+                        and reg.get("status") == "READY"
+                    ):
                         registry_id = reg["registryId"]
                         break
                 if not registry_id:
@@ -107,15 +113,23 @@ def run_demo(region: str = "us-east-1", registry_id: str | None = None):
     ans_meta = fetch_ans_metadata(LIVE_ANS_NAME)
     print(f"  Status:        {ans_meta['status']}")
     print(f"  Host:          {ans_meta['host']}")
-    print(f"  Badge URL:     {ans_meta['badgeUrl'][:80]}..." if ans_meta["badgeUrl"] else "  Badge URL:     (none)")
+    print(
+        f"  Badge URL:     {ans_meta['badgeUrl'][:80]}..."
+        if ans_meta["badgeUrl"]
+        else "  Badge URL:     (none)"
+    )
     print(f"  Trust Profile: {ans_meta['trustProfile']}")
     print(f"  Trust Composite: {ans_meta['trustComposite']}")
     tv = ans_meta["trustVector"]
-    print(f"  Trust Vector:  I={tv['integrity']} Id={tv['identity']} S={tv['solvency']} B={tv['behavior']} Sa={tv['safety']}")
+    print(
+        f"  Trust Vector:  I={tv['integrity']} Id={tv['identity']} S={tv['solvency']} B={tv['behavior']} Sa={tv['safety']}"
+    )
 
     # ── Step 3: Build agent card with ANS extension ──
     print("\n🔧 Step 3: Building A2A agent card with ANS extension")
-    agent_card_json = registry_client.build_agent_card_with_ans(BASE_AGENT_CARD, ans_meta)
+    agent_card_json = registry_client.build_agent_card_with_ans(
+        BASE_AGENT_CARD, ans_meta
+    )
     card_parsed = json.loads(agent_card_json)
     ext_count = len(card_parsed.get("capabilities", {}).get("extensions", []))
     print(f"  Agent card built with {ext_count} extension(s)")
@@ -169,7 +183,8 @@ def run_demo(region: str = "us-east-1", registry_id: str | None = None):
     if status == "PENDING_APPROVAL":
         print("\n✅ Step 7: Approving the record")
         registry_client.approve_record(
-            registry_id, record_id,
+            registry_id,
+            record_id,
             reason="Approved: ANS metadata verified, trust vector computed",
             region=region,
         )
@@ -185,11 +200,15 @@ def run_demo(region: str = "us-east-1", registry_id: str | None = None):
     print("  ⏳ Waiting 15s for search index propagation...")
     time.sleep(15)
     try:
-        results = registry_client.search_records(registry_id, "customer support agent", region=region)
+        results = registry_client.search_records(
+            registry_id, "customer support agent", region=region
+        )
         if results:
             print(f"  ✅ Found {len(results)} result(s):")
             for r in results:
-                print(f"     - [{r.get('descriptorType', 'N/A')}] {r.get('name', 'unknown')}")
+                print(
+                    f"     - [{r.get('descriptorType', 'N/A')}] {r.get('name', 'unknown')}"
+                )
         else:
             print("  ⏳ No results yet (index may still be propagating)")
     except Exception as e:
@@ -227,9 +246,17 @@ def run_demo(region: str = "us-east-1", registry_id: str | None = None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AWS Agent Registry + ANS Integration Demo")
-    parser.add_argument("--region", default="us-east-1", help="AWS region (default: us-east-1)")
-    parser.add_argument("--registry-id", default=None, help="Use existing registry ID instead of creating one")
+    parser = argparse.ArgumentParser(
+        description="AWS Agent Registry + ANS Integration Demo"
+    )
+    parser.add_argument(
+        "--region", default="us-east-1", help="AWS region (default: us-east-1)"
+    )
+    parser.add_argument(
+        "--registry-id",
+        default=None,
+        help="Use existing registry ID instead of creating one",
+    )
     args = parser.parse_args()
 
     run_demo(region=args.region, registry_id=args.registry_id)

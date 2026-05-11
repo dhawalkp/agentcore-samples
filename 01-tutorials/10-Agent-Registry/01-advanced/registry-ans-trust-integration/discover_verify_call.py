@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 # STEP 1: DISCOVER — Search AWS Agent Registry
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def _has_ans_metadata(record: dict) -> bool:
     """Check if a record contains ANS metadata in any supported format."""
     descriptors = record.get("descriptors", {})
@@ -85,7 +86,11 @@ def _has_ans_metadata(record: dict) -> bool:
                 data = json.loads(content_raw)
                 if "x-ans-name" in data:
                     return True
-                if "ans" in data and isinstance(data["ans"], dict) and data["ans"].get("ansName"):
+                if (
+                    "ans" in data
+                    and isinstance(data["ans"], dict)
+                    and data["ans"].get("ansName")
+                ):
                     return True
             except (json.JSONDecodeError, AttributeError):
                 pass
@@ -111,7 +116,7 @@ def discover_agent(registry_id: str, query: str, region: str = "us-east-1") -> d
     print("  STEP 1: DISCOVER — Search AWS Agent Registry")
     print("═" * 70)
     print(f"  Registry ID: {registry_id}")
-    print(f"  Query:       \"{query}\"")
+    print(f'  Query:       "{query}"')
     print(f"  Region:      {region}")
     print()
 
@@ -190,6 +195,7 @@ def discover_agent(registry_id: str, query: str, region: str = "us-east-1") -> d
 # STEP 2: EXTRACT — Pull ANS name from registry record
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def extract_ans_name(record: dict) -> tuple[str, str]:
     """Extract the ANS name and agent URL from a registry record.
 
@@ -232,8 +238,10 @@ def extract_ans_name(record: dict) -> tuple[str, str]:
                         print(f"  Agent URL:  {agent_url}")
                         print(f"  Host:       {params.get('host', 'N/A')}")
                         print(f"  Status:     {params.get('status', 'N/A')}")
-                        print(f"  Trust:      {params.get('trustProfile', 'N/A')} "
-                              f"(composite: {params.get('trustComposite', 0)})")
+                        print(
+                            f"  Trust:      {params.get('trustProfile', 'N/A')} "
+                            f"(composite: {params.get('trustComposite', 0)})"
+                        )
                         break
             except json.JSONDecodeError:
                 pass
@@ -295,6 +303,7 @@ def extract_ans_name(record: dict) -> tuple[str, str]:
 # STEP 3: VERIFY — Validate agent via ANS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 def verify_agent(ans_name: str, agent_url: str) -> dict:
     """Verify the agent's identity via ANS protocol.
 
@@ -340,10 +349,14 @@ def verify_agent(ans_name: str, agent_url: str) -> dict:
     print(f"    Status:           {ans_meta['status']}")
     print(f"    Domain Validation: {ans_meta['domainValidation']}")
     print(f"    Registered At:    {ans_meta['registeredAt']}")
-    print(f"    Identity Cert:    {ans_meta['identityCert']['type']} "
-          f"[{ans_meta['identityCert']['fingerprint'][:30]}...]")
-    print(f"    Server Cert:      {ans_meta['serverCert']['type']} "
-          f"[{ans_meta['serverCert']['fingerprint'][:30]}...]")
+    print(
+        f"    Identity Cert:    {ans_meta['identityCert']['type']} "
+        f"[{ans_meta['identityCert']['fingerprint'][:30]}...]"
+    )
+    print(
+        f"    Server Cert:      {ans_meta['serverCert']['type']} "
+        f"[{ans_meta['serverCert']['fingerprint'][:30]}...]"
+    )
 
     # ── 3c: PKI fingerprint matching ──
     print("\n  ── 3c: PKI Fingerprint Matching ──")
@@ -351,6 +364,7 @@ def verify_agent(ans_name: str, agent_url: str) -> dict:
 
     try:
         ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         with ctx.wrap_socket(
             socket.create_connection((host, 443), timeout=10),
             server_hostname=host,
@@ -389,7 +403,9 @@ def verify_agent(ans_name: str, agent_url: str) -> dict:
     print("\n  ── Verification Summary ──")
     print(f"    ANS Status:        {ans_meta['status']}")
     print(f"    Liveness:          {'✅ LIVE' if liveness['valid'] else '❌ NOT LIVE'}")
-    print(f"    Fingerprint Match: {'✅ MATCH' if fingerprint_match else '⚠️  MISMATCH'}")
+    print(
+        f"    Fingerprint Match: {'✅ MATCH' if fingerprint_match else '⚠️  MISMATCH'}"
+    )
     print(f"    Trust Profile:     {ans_meta['trustProfile']}")
 
     verified = liveness["valid"] and ans_meta["status"] == "ACTIVE"
@@ -410,7 +426,10 @@ def verify_agent(ans_name: str, agent_url: str) -> dict:
 # STEP 4: CALL — Send A2A message to verified agent
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def call_agent(agent_url: str, message: str = "Hello! What can you help me with?") -> dict:
+
+def call_agent(
+    agent_url: str, message: str = "Hello! What can you help me with?"
+) -> dict:
     """Send an A2A JSON-RPC message to the verified agent.
 
     Uses the A2A protocol (JSON-RPC 2.0 over HTTPS):
@@ -428,7 +447,7 @@ def call_agent(agent_url: str, message: str = "Hello! What can you help me with?
     print("  STEP 4: CALL — Send A2A message to verified agent")
     print("═" * 70)
     print(f"  Endpoint: {agent_url}")
-    print(f"  Message:  \"{message}\"")
+    print(f'  Message:  "{message}"')
     print()
 
     # Build A2A JSON-RPC request
@@ -543,7 +562,12 @@ def _try_alternate_endpoints(base_url: str, payload: dict) -> dict:
             continue
         try:
             print(f"    Trying: {url}")
-            resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=10,
+            )
             if resp.ok:
                 data = resp.json()
                 print(f"    ✅ Success at {url}")
@@ -558,6 +582,7 @@ def _try_alternate_endpoints(base_url: str, payload: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN — Full end-to-end flow
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def run_discover_verify_call(
     registry_id: str,
@@ -583,9 +608,11 @@ def run_discover_verify_call(
     print("  AWS Agent Registry + ANS: Discover → Verify → Call")
     print("  " + "─" * 66)
     print(f"  Registry:  {registry_id}")
-    print(f"  Query:     \"{query}\"")
+    print(f'  Query:     "{query}"')
     print(f"  Region:    {region}")
-    print(f"  Time:      {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(
+        f"  Time:      {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+    )
     print("█" * 70)
 
     # Step 1: Discover
@@ -610,10 +637,14 @@ def run_discover_verify_call(
     print("█" * 70)
     print(f"  1. DISCOVER:  Found '{record.get('name', 'N/A')}' in AWS Registry")
     print(f"  2. EXTRACT:   ANS Name = {ans_name}")
-    print(f"  3. VERIFY:    Status={verification['ans_metadata']['status']}, "
-          f"FP={'MATCH' if verification['fingerprint_match'] else 'MISMATCH'}, "
-          f"Trust={verification['ans_metadata']['trustProfile']}")
-    print(f"  4. CALL:      {'✅ Success' if 'error' not in result else '❌ ' + result.get('error', '')}")
+    print(
+        f"  3. VERIFY:    Status={verification['ans_metadata']['status']}, "
+        f"FP={'MATCH' if verification['fingerprint_match'] else 'MISMATCH'}, "
+        f"Trust={verification['ans_metadata']['trustProfile']}"
+    )
+    print(
+        f"  4. CALL:      {'✅ Success' if 'error' not in result else '❌ ' + result.get('error', '')}"
+    )
     print("█" * 70 + "\n")
 
     return {
