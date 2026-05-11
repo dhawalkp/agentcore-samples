@@ -8,88 +8,138 @@ The integration adds ANS metadata to AWS Agent Registry records and keeps them i
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    AWS Agent Registry                            │
-│                  (Private / Enterprise)                          │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ Registry Record (A2A type with ANS extension)             │   │
-│  │                                                           │   │
-│  │  name: "customer-support-agent"                           │   │
-│  │  descriptorType: A2A                                      │   │
-│  │  recordVersion: "1.0.0"                                   │   │
-│  │  status: APPROVED                                         │   │
-│  │                                                           │   │
-│  │  agentCard.capabilities.extensions: [{                    │   │
-│  │    uri: "https://ans-protocol.org/ext/ans-identity/v1",   │   │
-│  │    params: {                                              │   │
-│  │      ansName: "ans://v1.0.0.support-abc.helpagent.club",  │   │
-│  │      status: "ACTIVE",                                    │   │
-│  │      identityCert: {type:"X509-OV-CLIENT",...},           │   │
-│  │      serverCert: {type:"X509-DV-SERVER",...},             │   │
-│  │      trustVector: {                                       │   │
-│  │        integrity:80, identity:50, solvency:0,             │   │
-│  │        behavior:50, safety:40                             │   │
-│  │      },                                                   │   │
-│  │      trustProfile: "UNTRUSTED",                           │   │
-│  │      trustComposite: 44.0                                 │   │
-│  │    }                                                      │   │
-│  │  }]                                                       │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  Discovery: Semantic search via AWS Agent Registry API          │
-│  Governance: Approval workflow (DRAFT → PENDING → APPROVED)     │
-│  Auth: IAM or JWT                                               │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         │ ANS metadata sync
-                         │ (EventBridge or polling)
-                         │
-┌────────────────────────▼────────────────────────────────────────┐
-│                    GoDaddy ANS (Public)                          │
-│                                                                 │
-│  DNS records: _ans TXT, _ans-badge TXT, TLSA                   │
-│  Transparency Log: Sealed registration events                   │
-│  Trust scoring: 5-dimension Trust Vector                        │
-│  Verification: PKI + DANE + TL inclusion proof                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Architecture Overview](diagrams/1-architecture-overview.drawio.png)
 
 ## Data Flow
 
-### Flow 1: Publish Agent → Register in AWS Registry → Publish to ANS → Sync Back
+### Flow 1: Publish Agent with GoDaddy ANS Metadata
 
+```mermaid
+sequenceDiagram
+    participant Publisher
+    participant ANS as GoDaddy ANS
+    participant DNS as DNS
+    participant TL as Transparency Log
+    participant Registry as AWS Agent Registry
+
+    Publisher->>ANS: Register agent (domain, certs)
+    ANS->>DNS: Create _ans-badge TXT record
+    ANS->>TL: Seal registration event (certs, attestations)
+    ANS-->>Publisher: ANS Name: ans://v1.0.0.agent.example.com
+
+    Publisher->>DNS: Resolve _ans-badge.{host} TXT
+    DNS-->>Publisher: badge URL
+
+    Publisher->>TL: GET badge
+    TL-->>Publisher: {status: ACTIVE, certs, trustVector}
+
+    Publisher->>Publisher: Build A2A Agent Card with ANS extension
+
+    Publisher->>Registry: create_registry_record(A2A, agentCard)
+    Note over Registry: Validates: liveness, uniqueness,<br/>version alignment, host alignment
+    Registry-->>Publisher: Record created (DRAFT)
+
+    Publisher->>Registry: submit_for_approval(recordId)
+    Registry-->>Publisher: PENDING_APPROVAL
+
+    Publisher->>Registry: approve_record(recordId)
+    Registry-->>Publisher: APPROVED ✅
 ```
-1. Publisher creates agent record in AWS Agent Registry
-   - Type: AGENT (A2A Agent Card) or CUSTOM
-   - Status: DRAFT
 
-2. Publisher also registers agent with ANS (separate step)
-   - ANS verifies domain, issues certs, seals TL event
-   - Returns ANSName, badge URL, cert fingerprints
+### Flow 2: Consumer — Discover → Verify → Call
 
-3. Sync service detects ANS registration
-   - Fetches ANS metadata (DNS + TL badge)
-   - Updates AWS Registry record's customMetadata with ANS fields
-   - Record goes back to DRAFT (mutation resets status)
+```mermaid
+sequenceDiagram
+    participant Consumer
+    participant Registry as AWS Agent Registry
+    participant DNS as DNS
+    participant TL as Transparency Log
+    participant Agent as A2A Agent
 
-4. Curator reviews and approves the record
-   - Record becomes APPROVED and searchable
+    Consumer->>Registry: search_registry_records("customer support")
+    Registry-->>Consumer: A2A record with ANS extension
 
-5. Consumers discover via AWS Registry semantic search
-   - Search returns record with ANS metadata embedded
-   - Consumer uses ANS metadata for verification + connection
+    Consumer->>Consumer: Extract ANS name from capabilities.extensions
+
+    Consumer->>DNS: Resolve _ans-badge.{host} TXT
+    DNS-->>Consumer: badge URL
+
+    Consumer->>TL: GET badge
+    TL-->>Consumer: {status: ACTIVE, serverCert.fingerprint}
+
+    Consumer->>Agent: TLS handshake (port 443)
+    Agent-->>Consumer: Server certificate (DER)
+
+    Consumer->>Consumer: SHA256(live cert) == TL fingerprint? ✅ MATCH
+
+    Consumer->>Agent: POST /a2a {method: "message/send"}
+    Agent-->>Consumer: {result: {status: "completed", message: "..."}}
 ```
 
-### Flow 2: ANS Update → Sync to AWS Registry
+### Flow 3: GoDaddy ANS Metadata Sync (Lambda)
 
+```mermaid
+sequenceDiagram
+    participant EB as EventBridge (5 min)
+    participant Lambda as Sync Lambda
+    participant Registry as AWS Agent Registry
+    participant DNS as DNS
+    participant TL as Transparency Log
+
+    EB->>Lambda: Trigger
+
+    Lambda->>Registry: list_registry_records(registryId)
+    Registry-->>Lambda: [records...]
+
+    loop For each record with ANS data
+        Lambda->>DNS: Resolve _ans-badge.{host} TXT
+        DNS-->>Lambda: badge URL
+
+        Lambda->>TL: GET badge
+        TL-->>Lambda: {status, serverCert.fp, identityCert.fp}
+
+        Lambda->>Lambda: Compare source-of-truth fields only
+
+        alt Changes detected
+            Lambda->>Registry: update_registry_record(fresh data)
+            Note over Registry: Record → DRAFT
+        else No changes
+            Lambda->>Lambda: Skip (no DRAFT reset)
+        end
+    end
+
+    Lambda-->>EB: {checked: N, updated: M}
 ```
-1. ANS agent is updated (version bump, cert renewal, revocation)
-2. Sync service detects change (polling _ans-badge or EventBridge)
-3. Sync service updates AWS Registry record customMetadata
-4. Record status resets to DRAFT (per AWS Registry mutation rules)
-5. Curator re-approves (or auto-approval if configured)
+
+### Flow 4: MCP Server with GoDaddy ANS
+
+```mermaid
+sequenceDiagram
+    participant Publisher
+    participant ANS as GoDaddy ANS
+    participant Registry as AWS Agent Registry
+    participant Consumer
+    participant MCP as MCP Server
+
+    Publisher->>ANS: Register MCP server in ANS
+    ANS-->>Publisher: ANS Name
+
+    Publisher->>Publisher: Build serverSchema with x-ans-* fields
+
+    Publisher->>Registry: create_registry_record(MCP, serverSchema)
+    Registry-->>Publisher: Record APPROVED ✅
+
+    Consumer->>Registry: search("data processing")
+    Registry-->>Consumer: MCP record with x-ans-* fields
+
+    Consumer->>Consumer: Extract x-ans-name, verify via ANS (DNS+TL+PKI)
+    Note over Consumer: ✅ Fingerprint MATCH
+
+    Consumer->>MCP: tools/list
+    MCP-->>Consumer: Available tools
+
+    Consumer->>MCP: tools/call
+    MCP-->>Consumer: Tool results
 ```
 
 ## Components
